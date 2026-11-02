@@ -26,6 +26,7 @@ class MqttService {
     final cliente = criarClienteMqtt(Config.host, Config.brokerPorta, id);
 
     cliente
+      ..setProtocolV311()
       ..keepAlivePeriod = 30
       ..autoReconnect = true
       ..logging(on: false)
@@ -39,9 +40,9 @@ class MqttService {
 
     try {
       await cliente.connect();
-    } catch (_) {
+    } catch (e) {
       cliente.disconnect();
-      aoMudarEstado('sem conexão com o broker');
+      aoMudarEstado('sem conexão com o broker (${Config.host}:${Config.brokerPorta}): $e');
       return;
     }
 

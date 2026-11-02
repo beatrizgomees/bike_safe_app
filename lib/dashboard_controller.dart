@@ -41,9 +41,25 @@ class DashboardController extends ChangeNotifier {
   }
 
   Future<void> _carregarHistorico() async {
+    final falhas = <String>[];
+
+    // cada chamada é independente: se uma falhar, as outras continuam
     try {
       resumo = await _api.resumo();
+    } catch (e) {
+      falhas.add('resumo ($e)');
+    }
 
+    try {
+      final historico = await _api.acidentes();
+      for (final a in historico.reversed) {
+        _adicionar(a, novo: false, avisar: false);
+      }
+    } catch (e) {
+      falhas.add('acidentes ($e)');
+    }
+
+    try {
       final trechos = await _api.ciclovias();
       ciclovias = [
         for (final t in trechos)
@@ -53,17 +69,11 @@ class DashboardController extends ChangeNotifier {
             color: (t.ehCiclofaixa ? Colors.orange : Colors.green).withOpacity(0.8),
           )
       ];
-
-      final historico = await _api.acidentes();
-      for (final a in historico.reversed) {
-        _adicionar(a, novo: false, avisar: false);
-      }
-
-      erroApi = null;
     } catch (e) {
-      erroApi = 'API indisponível: $e';
+      falhas.add('ciclovias ($e)');
     }
 
+    erroApi = falhas.isEmpty ? null : 'Falhou: ${falhas.join('; ')}';
     notifyListeners();
   }
 

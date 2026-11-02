@@ -53,7 +53,13 @@ class _DashboardPageState extends State<DashboardPage> {
                 child: Chip(
                   avatar: Icon(Icons.circle, size: 12,
                       color: c.estado == 'ao vivo' ? Colors.green : Colors.orange),
-                  label: Text(c.estado),
+                  label: Tooltip(
+                    message: c.estado,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: Text(c.estado, overflow: TextOverflow.ellipsis),
+                    ),
+                  ),
                 ),
               ),
             ],
