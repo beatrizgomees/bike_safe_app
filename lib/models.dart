@@ -71,7 +71,6 @@ class Acidente {
       ? [for (final c in v) Ciclovia.fromJson(_mapa(c))]
       : <Ciclovia>[];
 
-  /// Formato da API: /api/acidentes
   factory Acidente.deApi(Map<String, dynamic> j) => Acidente(
         protocolo: j['protocolo'].toString(),
         data: _s(j['data']),
@@ -86,7 +85,6 @@ class Acidente {
         estacao: j['estacao'] is Map ? Estacao.fromJson(_mapa(j['estacao'])) : null,
       );
 
-  /// Formato do MQTT: bikesafe/app/acidente  ->  {acidente: {...}, analise: {local, ciclovias, estacao}}
   factory Acidente.deEvento(Map<String, dynamic> e) {
     final a = _mapa(e['acidente']);
     final analise = _mapa(e['analise']);
@@ -126,7 +124,6 @@ class Resumo {
       );
 }
 
-/// Um trecho de ciclovia/ciclofaixa para desenhar no mapa.
 class Trecho {
   Trecho({required this.pontos, this.rota, this.tipo, this.rede});
 
@@ -167,4 +164,73 @@ class Trecho {
 
     return saida;
   }
+}
+
+class EstacaoBike {
+  EstacaoBike({
+    required this.codigo,
+    required this.lat,
+    required this.lon,
+    this.nome,
+    this.localizacao,
+    this.bairro,
+    this.capacidade,
+  });
+
+  final String codigo;
+  final String? nome, localizacao, bairro;
+  final double? capacidade;
+  final double lat, lon;
+
+  LatLng get ponto => LatLng(lat, lon);
+
+  factory EstacaoBike.fromJson(Map<String, dynamic> j) => EstacaoBike(
+        codigo: j['codigo'].toString(),
+        nome: _s(j['nome']),
+        localizacao: _s(j['localizacao']),
+        bairro: _s(j['bairro']),
+        capacidade: _d(j['capacidade']),
+        lat: _d(j['lat'])!,
+        lon: _d(j['lon'])!,
+      );
+}
+
+const tiposReporte = {
+  'colisao': 'Colisão',
+  'queda': 'Queda',
+  'atropelamento': 'Atropelamento',
+  'outro': 'Outro',
+};
+
+class Reporte {
+  Reporte({
+    required this.id,
+    required this.tipo,
+    required this.lat,
+    required this.lon,
+    required this.criadoEm,
+    this.descricao,
+    this.endereco,
+    this.status = 'recebido',
+  });
+
+  final int id;
+  final String tipo, status;
+  final String? descricao, endereco;
+  final double lat, lon;
+  final DateTime criadoEm;
+
+  LatLng get ponto => LatLng(lat, lon);
+  String get tipoRotulo => tiposReporte[tipo] ?? tipo;
+
+  factory Reporte.fromJson(Map<String, dynamic> j) => Reporte(
+        id: (j['id'] as num).toInt(),
+        tipo: j['tipo'].toString(),
+        descricao: _s(j['descricao']),
+        endereco: _s(j['endereco']),
+        lat: _d(j['lat'])!,
+        lon: _d(j['lon'])!,
+        status: _s(j['status']) ?? 'recebido',
+        criadoEm: DateTime.tryParse('${j['criado_em']}')?.toLocal() ?? DateTime.now(),
+      );
 }
