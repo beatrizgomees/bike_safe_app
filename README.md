@@ -1,4 +1,5 @@
 # Bike Safe — App (Flutter)
+<img width="1802" height="997" alt="tela 1" src="https://github.com/user-attachments/assets/351c6f2c-6711-4c6f-890e-e33dcd86855f" />
 
 App do Bike Safe: mapa de acidentes com ciclistas no Recife, cruzados com ciclovias, ciclofaixas e estações Bike PE. Roda no navegador (Chrome/Edge), em emulador Android e em celular. Consome a API do backend (HTTP) e recebe acidentes novos em tempo real pelo broker MQTT (WebSocket).
 
