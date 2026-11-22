@@ -5,9 +5,7 @@ import 'package:mqtt_client/mqtt_client.dart';
 import 'config.dart';
 import 'mqtt_factory.dart';
 
-/// Tempo real: assina bikesafe/app/# no broker (a saída do MP).
-///   app/acidente -> um acidente novo, já tratado
-///   app/ultimos  -> mensagem retida com os últimos acidentes (chega ao conectar)
+
 class MqttService {
   MqttService({
     required this.aoAcidente,

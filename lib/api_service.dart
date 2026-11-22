@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'config.dart';
-import 'models.dart';
+import 'models/acidente.dart';
+import 'models/estacao.dart';
+import 'models/resumo.dart';
+import 'models/trecho.dart';
 
 /// Histórico: o que já está gravado no banco (via API).
 class ApiService {
@@ -19,6 +22,50 @@ class ApiService {
     return jsonDecode(utf8.decode(resposta.bodyBytes));
   }
 
+  /// Envia um reporte de acidente feito pelo usuário (POST /api/reportes).
+  /// [tipo]: colisao, queda, atropelamento ou outro. A posição precisa estar no Recife.
+  Future<Map<String, dynamic>> reportar({
+    required String tipo,
+    required double lat,
+    required double lon,
+    String? descricao,
+    String? endereco,
+  }) async {
+    final http.Response resposta;
+
+    try {
+      resposta = await http
+          .post(
+            Uri.parse('${Config.apiUrl}/api/reportes'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'dispositivo': Config.dispositivo,
+              'tipo': tipo,
+              'lat': lat,
+              'lon': lon,
+              'endereco': endereco,
+              if (descricao != null && descricao.isNotEmpty) 'descricao': descricao,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      throw Exception('Não consegui falar com o servidor (${Config.apiUrl}).');
+    }
+
+    dynamic dados;
+    try {
+      dados = jsonDecode(utf8.decode(resposta.bodyBytes));
+    } catch (_) {}
+
+    if (resposta.statusCode != 200 && resposta.statusCode != 201) {
+      throw Exception(dados is Map && dados['erro'] != null
+          ? '${dados['erro']}'
+          : 'O servidor respondeu ${resposta.statusCode}.');
+    }
+
+    return dados is Map ? Map<String, dynamic>.from(dados) : <String, dynamic>{};
+  }
+
   Future<Resumo> resumo() async =>
       Resumo.fromJson(Map<String, dynamic>.from(await _get('/api/resumo')));
 
@@ -26,6 +73,15 @@ class ApiService {
     final lista = await _get('/api/acidentes?limite=$limite') as List;
 
     return [for (final a in lista) Acidente.deApi(Map<String, dynamic>.from(a))];
+  }
+
+  /// Estações de bike com posição (as sem lat/lon ficam de fora).
+  Future<List<Estacao>> estacoes() async {
+    final lista = await _get('/api/estacoes') as List;
+
+    return [
+      for (final e in lista) Estacao.fromJson(Map<String, dynamic>.from(e)),
+    ].where((e) => e.temPosicao).toList();
   }
 
   Future<List<Trecho>> ciclovias() async =>
