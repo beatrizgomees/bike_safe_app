@@ -4,8 +4,6 @@ import 'package:flutter/foundation.dart' show kIsWeb, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Endereços do backend. Podem ser trocados na hora de rodar:
-///   flutter run --dart-define=HOST=192.168.0.10
 class Config {
   static const _hostDefinido = String.fromEnvironment('HOST');
 
