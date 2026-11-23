@@ -1,313 +1,364 @@
+import 'dart:math' as math;
+
+import 'package:bikesafe_app/components/detalhe.dart';
+import 'package:bikesafe_app/dashboard_controller.dart';
+import 'package:bikesafe_app/models/acidente.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../clusters.dart';
-import '../dashboard_controller.dart';
-import '../models.dart';
-import '../widgets.dart';
+// Cores do layout (as mesmas da legenda)
+const _corAcidente = Color(0xFFC2410C);   // laranja
+const _corCiclovia = Color(0xFF00796B);   // verde-azulado
+const _corCiclofaixa = Color(0xFF2563EB); // azul (tracejado)
+const _corEstacao = Color(0xFF2563EB);    // anel azul
 
+/// Aba do mapa: título, filtros de camada, mapa com acidentes agrupados e legenda.
+class Mapa extends StatefulWidget {
+  const Mapa(this.c, {super.key});
 
-class MapaTela extends StatelessWidget {
-  const MapaTela(this.c, {super.key});
   final DashboardController c;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-        builder: (context, caixa) => caixa.maxWidth >= 800 ? _TelaLarga(c) : _TelaCelular(c),
-      );
+  State<Mapa> createState() => _MapaState();
 }
 
+class _MapaState extends State<Mapa> {
+  // Camadas ligadas (como no layout: acidentes, ciclovias e ciclofaixas ligadas)
+  bool _acidentes = true;
+  bool _ciclovias = true;
+  bool _ciclofaixas = true;
+  bool _estacoes = false;
+  bool _soRotas = false; // só acidentes junto a ciclovia/ciclofaixa
 
-class _TelaCelular extends StatefulWidget {
-  const _TelaCelular(this.c);
-  final DashboardController c;
+  double _zoom = 12;
 
-  @override
-  State<_TelaCelular> createState() => _TelaCelularState();
-}
+  DashboardController get c => widget.c;
 
-class _TelaCelularState extends State<_TelaCelular> {
-  static const _minimo = 0.14, _inicial = 0.38, _maximo = 0.92;
-  final _folha = DraggableScrollableController();
+  /// Guarda o zoom arredondado para reagrupar os acidentes quando ele muda.
+  void _aoMoverMapa(MapCamera camera, bool _) {
+    final z = camera.zoom.roundToDouble();
 
-  void _recolher() => _folha.animateTo(
-        _minimo,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-      );
+    if (z == _zoom) return;
 
-  void _escolher(Acidente a) {
-    widget.c.selecionar(a);
+    _zoom = z;
+    Future.microtask(() {
+      if (mounted) setState(() {});
+    });
+  }
 
-    if (_folha.isAttached && _folha.size > _inicial) {
-      _folha.animateTo(
-        _inicial,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-      );
+  bool _selecionado(_Grupo g) => g.itens.length == 1 && identical(g.itens.first, c.selecionado);
+
+  void _tocarGrupo(_Grupo g) {
+    if (g.itens.length == 1) {
+      c.selecionar(g.itens.first);
+    } else {
+      c.mapController.move(g.centro, math.min(_zoom + 2, 18));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.c;
-    final topo = MediaQuery.of(context).padding.top;
+    final tema = Theme.of(context);
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          Positioned.fill(child: _Mapa(c)),
-          Positioned(top: topo + 12, left: 12, right: 72, child: _FaixaCamadas(c)),
-          Positioned(top: topo + 12, right: 12, child: _BotoesFlutuantes(c)),
-          Positioned(top: topo + 64, left: 12, child: SeloEstado(c)),
-          if (c.selecionado != null)
-            Positioned(
-              top: topo + 108,
-              left: 12,
-              right: 72,
-              child: _Detalhe(c.selecionado!, onFechar: c.limparSelecao),
+    final visiveis = c.acidentes.where((a) => a.temPosicao && (!_soRotas || a.naCiclovia));
+    final grupos = _acidentes ? _agrupar(visiveis, _zoom) : const <_Grupo>[];
+
+    return ColoredBox(
+      color: tema.colorScheme.surfaceContainerLow,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // Título e estado da conexão
+            SizedBox(
+              height: 64,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text('Mapa',
+                          style: tema.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                    ),
+                    // _ChipConexao(aoVivo: c.aoVivo),
+                  ],
+                ),
+              ),
             ),
-          DraggableScrollableSheet(
-            controller: _folha,
-            initialChildSize: _inicial,
-            minChildSize: _minimo,
-            maxChildSize: _maximo,
-            snap: true,
-            snapSizes: const [_minimo, _inicial, _maximo],
-            builder: (context, rolagem) => _Folha(
-              c,
-              rolagem,
-              aoFechar: _recolher,
-              aoEscolher: _escolher,
+
+            // Filtros de camada
+            SizedBox(
+              height: 52,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                children: [
+                  _Filtro('Acidentes', _acidentes, (v) => setState(() => _acidentes = v)),
+                  _Filtro('Ciclovias', _ciclovias, (v) => setState(() => _ciclovias = v)),
+                  _Filtro('Ciclofaixas', _ciclofaixas, (v) => setState(() => _ciclofaixas = v)),
+                  _Filtro('Estações', _estacoes, (v) => setState(() => _estacoes = v)),
+                  _Filtro('Só em rotas cicloviárias', _soRotas, (v) => setState(() => _soRotas = v)),
+                ],
+              ),
             ),
-          ),
-        ],
+
+            // Mapa
+            Expanded(
+              child: Stack(
+                children: [
+                  FlutterMap(
+                    mapController: c.mapController,
+                    options: MapOptions(
+                      initialCenter: const LatLng(-8.0476, -34.877), // Recife
+                      initialZoom: 12,
+                      onPositionChanged: _aoMoverMapa,
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'br.bikesafe.app',
+                      ),
+                      if (_ciclofaixas) PolylineLayer(polylines: c.linhasCiclofaixa),
+                      if (_ciclovias) PolylineLayer(polylines: c.linhasCiclovia),
+
+                      if (_estacoes)
+                        MarkerLayer(markers: [
+                          for (final e in c.estacoes)
+                            if (e.lat != null && e.lon != null)
+                              Marker(
+                                point: LatLng(e.lat!, e.lon!),
+                                width: 18,
+                                height: 18,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white,
+                                    border: Border.all(color: _corEstacao, width: 3),
+                                  ),
+                                ),
+                              ),
+                        ]),
+
+                      MarkerLayer(markers: [
+                        for (final g in grupos)
+                          Marker(
+                            point: g.centro,
+                            // o selecionado ganha espaço para o halo em volta
+                            width: _selecionado(g) ? 56 : g.tamanho,
+                            height: _selecionado(g) ? 56 : g.tamanho,
+                            child: GestureDetector(
+                              onTap: () => _tocarGrupo(g),
+                              child: _MarcadorAcidente(
+                                quantidade: g.itens.length,
+                                selecionado: _selecionado(g),
+                              ),
+                            ),
+                          ),
+                      ]),
+
+                      const RichAttributionWidget(
+                        attributions: [TextSourceAttribution('© OpenStreetMap')],
+                      ),
+                    ],
+                  ),
+
+                  // Legenda (some quando o detalhe está aberto)
+                  if (c.selecionado == null)
+                    const Positioned(left: 16, bottom: 16, child: _Legenda()),
+
+                  // Acidente selecionado: escurece o mapa e sobe o painel do rodapé
+                  if (c.selecionado != null) ...[
+                    Positioned.fill(
+                      child: GestureDetector(
+                        onTap: c.limparSelecao, // tocar fora fecha
+                        child: ColoredBox(color: Colors.black.withValues(alpha: 0.28)),
+                      ),
+                    ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Detalhe(c.selecionado!, onFechar: c.limparSelecao),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _FaixaCamadas extends StatelessWidget {
-  const _FaixaCamadas(this.c);
-  final DashboardController c;
+/// Acidentes próximos na tela viram um só marcador com a contagem.
+class _Grupo {
+  _Grupo(this.centro, this.itens);
+
+  final LatLng centro;
+  final List<Acidente> itens;
+
+  double get tamanho => itens.length == 1 ? 22 : (itens.length < 10 ? 34 : 42);
+}
+
+/// Agrupa por uma grade de ~56 px na tela: quanto maior o zoom, menor a célula.
+List<_Grupo> _agrupar(Iterable<Acidente> lista, double zoom) {
+  final celula = 56 * 360 / (256 * math.pow(2, zoom));
+  final celulas = <String, List<Acidente>>{};
+
+  for (final a in lista) {
+    final chave = '${(a.ponto.latitude / celula).floor()}:${(a.ponto.longitude / celula).floor()}';
+    (celulas[chave] ??= []).add(a);
+  }
+
+  return [
+    for (final itens in celulas.values)
+      _Grupo(
+        LatLng(
+          itens.map((a) => a.ponto.latitude).reduce((x, y) => x + y) / itens.length,
+          itens.map((a) => a.ponto.longitude).reduce((x, y) => x + y) / itens.length,
+        ),
+        itens,
+      ),
+  ];
+}
+
+class _MarcadorAcidente extends StatelessWidget {
+  const _MarcadorAcidente({required this.quantidade, required this.selecionado});
+
+  final int quantidade;
+  final bool selecionado;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-        height: 44,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          children: [
-            _chip(context, 'Acidentes', Colors.red.shade600, c.mostrarAcidentes, c.alternarAcidentes),
-            _chip(context, 'Só nas rotas', null, c.soNasRotas,
-                c.mostrarAcidentes ? c.alternarSoNasRotas : null,
-                icone: Icons.alt_route),
-            _chip(context, 'Estações', Colors.indigo.shade600, c.mostrarEstacoes, c.alternarEstacoes),
-            _chip(context, 'Ciclovias', Colors.green.shade600, c.mostrarCiclovias, c.alternarCiclovias),
-            _chip(context, 'Ciclofaixas', Colors.orange.shade700, c.mostrarCiclofaixas,
-                c.alternarCiclofaixas),
-          ],
+  Widget build(BuildContext context) {
+    // Selecionado: bolinha laranja com um halo claro em volta, como no layout
+    if (selecionado) {
+      return Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: _corAcidente.withValues(alpha: 0.22),
+        ),
+        child: Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _corAcidente,
+            border: Border.all(color: Colors.white, width: 3),
+          ),
         ),
       );
+    }
 
-  Widget _chip(
-    BuildContext context,
-    String rotulo,
-    Color? cor,
-    bool ativo,
-    VoidCallback? aoTocar, {
-    IconData? icone,
-  }) {
-    final tema = Theme.of(context);
+    return Container(
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: _corAcidente,
+        border: Border.all(color: Colors.white, width: 3),
+      ),
+      child: quantidade > 1
+          ? Text('$quantidade',
+              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700))
+          : null,
+    );
+  }
+}
+
+class _Filtro extends StatelessWidget {
+  const _Filtro(this.rotulo, this.ligado, this.aoMudar);
+
+  final String rotulo;
+  final bool ligado;
+  final ValueChanged<bool> aoMudar;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
 
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: FilterChip(
-        avatar: icone != null
-            ? Icon(icone, size: 16)
-            : CircleAvatar(radius: 6, backgroundColor: cor),
         label: Text(rotulo),
-        selected: ativo,
-        showCheckmark: false,
-        elevation: 2,
-        pressElevation: 4,
-        backgroundColor: tema.colorScheme.surface,
-        selectedColor: tema.colorScheme.primaryContainer,
-        onSelected: aoTocar == null ? null : (_) => aoTocar(),
+        selected: ligado,
+        onSelected: aoMudar,
+        showCheckmark: true,
+        selectedColor: cs.primaryContainer,
+        checkmarkColor: cs.onPrimaryContainer,
+        backgroundColor: cs.surface,
+        side: BorderSide(color: ligado ? cs.primaryContainer : cs.outline),
+        shape: const StadiumBorder(),
+        labelStyle: TextStyle(
+          color: ligado ? cs.onPrimaryContainer : cs.onSurface,
+          fontWeight: ligado ? FontWeight.w600 : FontWeight.w500,
+        ),
       ),
     );
   }
 }
 
-class _BotoesFlutuantes extends StatelessWidget {
-  const _BotoesFlutuantes(this.c);
-  final DashboardController c;
+class _Legenda extends StatelessWidget {
+  const _Legenda();
 
-  @override
-  Widget build(BuildContext context) => Material(
-        elevation: 2,
-        borderRadius: BorderRadius.circular(12),
-        color: Theme.of(context).colorScheme.surface,
-        child: Column(
+  Widget _linha(Widget simbolo, String texto) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              tooltip: 'Atualizar do banco',
-              icon: const Icon(Icons.refresh),
-              onPressed: c.atualizar,
-            ),
-            const SizedBox(width: 40, child: Divider(height: 1)),
-            IconButton(
-              tooltip: 'Centralizar no Recife',
-              icon: const Icon(Icons.near_me_outlined),
-              onPressed: c.centralizar,
-            ),
+            SizedBox(width: 20, child: Center(child: simbolo)),
+            const SizedBox(width: 8),
+            Text(texto, style: const TextStyle(fontSize: 12)),
           ],
         ),
       );
-}
-
-class _Folha extends StatelessWidget {
-  const _Folha(this.c, this.rolagem, {required this.aoFechar, required this.aoEscolher});
-
-  final DashboardController c;
-  final ScrollController rolagem;
-  final VoidCallback aoFechar;
-  final void Function(Acidente) aoEscolher;
 
   @override
   Widget build(BuildContext context) {
-    final lista = c.visiveis;
+    final cs = Theme.of(context).colorScheme;
 
     return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-        boxShadow: const [BoxShadow(blurRadius: 12, color: Colors.black26)],
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.outlineVariant),
       ),
-      child: CustomScrollView(
-        controller: rolagem,
-        slivers: [
-          SliverPersistentHeader(pinned: true, delegate: _Cabecalho(c, aoFechar)),
-          if (lista.isEmpty)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(child: Text('Nenhum acidente neste filtro')),
-            )
-          else
-            SliverList.separated(
-              itemCount: lista.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, i) => ItemAcidente(c, lista[i], aoEscolher),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-const _rotulosFiltro = {
-  Filtro.todos: 'Todos',
-  Filtro.emCiclovia: 'Em ciclovia',
-  Filtro.foraCiclovia: 'Fora da ciclovia',
-  Filtro.pertoEstacao: 'Perto de estação',
-};
-
-class _Cabecalho extends SliverPersistentHeaderDelegate {
-  _Cabecalho(this.c, this.aoFechar);
-
-  final DashboardController c;
-  final VoidCallback aoFechar;
-
-  @override
-  double get minExtent => 136;
-
-  @override
-  double get maxExtent => 136;
-
-  @override
-  bool shouldRebuild(covariant _Cabecalho antigo) => true;
-
-  @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    final tema = Theme.of(context);
-    final total = c.visiveis.length;
-
-    return Material(
-      color: tema.colorScheme.surface,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // alça para arrastar
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: tema.colorScheme.outlineVariant,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+          _linha(
+            Container(
+                width: 12,
+                height: 12,
+                decoration: const BoxDecoration(color: _corAcidente, shape: BoxShape.circle)),
+            'Acidente (número = agrupados)',
           ),
-          SizedBox(
-            height: 56,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 16, right: 4),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 18,
-                    backgroundColor: tema.colorScheme.primaryContainer,
-                    child: Icon(Icons.pedal_bike, size: 20, color: tema.colorScheme.primary),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Acidentes com bike',
-                            style: tema.textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w600)),
-                        Row(
-                          children: [
-                            Text('$total encontrados', style: tema.textTheme.bodySmall),
-                            if (c.filtro != Filtro.todos) ...[
-                              Text(' · ', style: tema.textTheme.bodySmall),
-                              GestureDetector(
-                                onTap: () => c.definirFiltro(Filtro.todos),
-                                child: Text('Limpar filtro',
-                                    style: tema.textTheme.bodySmall
-                                        ?.copyWith(color: tema.colorScheme.primary)),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(icon: const Icon(Icons.close), onPressed: aoFechar),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(
-            height: 48,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          _linha(Container(width: 18, height: 4, color: _corCiclovia), 'Ciclovia'),
+          _linha(
+            Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                for (final f in Filtro.values)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(_rotulosFiltro[f]!),
-                      selected: c.filtro == f,
-                      onSelected: (_) => c.definirFiltro(f),
-                    ),
-                  ),
+                Container(width: 6, height: 3, color: _corCiclofaixa),
+                const SizedBox(width: 3),
+                Container(width: 6, height: 3, color: _corCiclofaixa),
               ],
             ),
+            'Ciclofaixa',
+          ),
+          _linha(
+            Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white,
+                border: Border.all(color: _corEstacao, width: 3),
+              ),
+            ),
+            'Estação de bicicleta',
           ),
         ],
       ),
@@ -315,258 +366,42 @@ class _Cabecalho extends SliverPersistentHeaderDelegate {
   }
 }
 
+/// "Ao vivo" quando conectado ao broker; "Offline" quando lendo do banco.
+class _ChipConexao extends StatelessWidget {
+  const _ChipConexao({required this.aoVivo});
 
-class _TelaLarga extends StatelessWidget {
-  const _TelaLarga(this.c);
-  final DashboardController c;
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        body: Column(
-          children: [
-            if (c.erroApi != null)
-              MaterialBanner(content: Text(c.erroApi!), actions: const [SizedBox.shrink()]),
-            Expanded(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        Positioned.fill(child: _Mapa(c)),
-                        Positioned(top: 12, left: 12, right: 72, child: _FaixaCamadas(c)),
-                        Positioned(top: 12, right: 12, child: _BotoesFlutuantes(c)),
-                        Positioned(top: 64, left: 12, child: SeloEstado(c)),
-                        if (c.selecionado != null)
-                          Positioned(
-                            left: 12,
-                            right: 12,
-                            bottom: 12,
-                            child: _Detalhe(c.selecionado!, onFechar: c.limparSelecao),
-                          ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(width: 360, child: _PainelLista(c)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-}
-
-class _PainelLista extends StatelessWidget {
-  const _PainelLista(this.c);
-  final DashboardController c;
+  final bool aoVivo;
 
   @override
   Widget build(BuildContext context) {
-    final lista = c.visiveis;
-    final tema = Theme.of(context);
+    final cs = Theme.of(context).colorScheme;
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Acidentes com bike · ${lista.length} encontrados',
-                  style: tema.textTheme.titleSmall),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: [
-                  for (final f in Filtro.values)
-                    ChoiceChip(
-                      label: Text(_rotulosFiltro[f]!),
-                      selected: c.filtro == f,
-                      onSelected: (_) => c.definirFiltro(f),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: lista.isEmpty
-              ? const Center(child: Text('Nenhum acidente neste filtro'))
-              : ListView.separated(
-                  itemCount: lista.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, i) => ItemAcidente(c, lista[i], c.selecionar),
-                ),
-        ),
-      ],
-    );
-  }
-}
-
-
-class _Mapa extends StatelessWidget {
-  const _Mapa(this.c);
-  final DashboardController c;
-
-  @override
-  Widget build(BuildContext context) {
-    final grupos = c.mostrarAcidentes ? agrupar(c.visiveis, c.zoom) : const <Grupo>[];
-
-    return FlutterMap(
-      mapController: c.mapController,
-      options: MapOptions(
-        initialCenter: const LatLng(-8.0476, -34.877),   // Recife
-        initialZoom: 12,
-        // o zoom decide como os acidentes se agrupam; atualiza depois do quadro
-        onPositionChanged: (camera, _) => WidgetsBinding.instance
-            .addPostFrameCallback((_) => c.definirZoom(camera.zoom)),
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: aoVivo ? cs.primaryContainer : cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
       ),
-      children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'br.bikesafe.app',
-        ),
-        if (c.mostrarCiclovias) PolylineLayer(polylines: c.polCiclovias),
-        if (c.mostrarCiclofaixas) PolylineLayer(polylines: c.polCiclofaixas),
-        if (c.mostrarEstacoes)
-          MarkerLayer(markers: [for (final e in c.estacoes) _estacao(context, e)]),
-        MarkerLayer(markers: [
-          for (final g in grupos) g.unico ? _pino(g.itens.first) : _cluster(g),
-        ]),
-        const RichAttributionWidget(
-          alignment: AttributionAlignment.bottomRight,
-          attributions: [TextSourceAttribution('© OpenStreetMap')],
-        ),
-      ],
-    );
-  }
-
-  Marker _estacao(BuildContext context, EstacaoBike e) => Marker(
-        point: e.ponto,
-        width: 28,
-        height: 28,
-        child: GestureDetector(
-          onTap: () => _mostrarEstacao(context, e),
-          child: Container(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
             decoration: BoxDecoration(
-              color: Colors.indigo.shade600,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white, width: 2),
-              boxShadow: const [BoxShadow(blurRadius: 3, color: Colors.black38)],
+              color: aoVivo ? cs.primary : cs.outline,
+              shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.local_parking, size: 16, color: Colors.white),
           ),
-        ),
-      );
-
-  void _mostrarEstacao(BuildContext context, EstacaoBike e) => showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(e.nome ?? 'Estação ${e.codigo}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (e.localizacao != null) Text(e.localizacao!),
-              if (e.bairro != null) Text(e.bairro!),
-              if (e.capacidade != null) Text('Capacidade: ${e.capacidade!.round()} bicicletas'),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fechar')),
-          ],
-        ),
-      );
-
-  Marker _pino(Acidente a) {
-    final selecionado = identical(a, c.selecionado);
-
-    return Marker(
-      point: a.ponto,
-      width: 30,
-      height: 30,
-      child: GestureDetector(
-        onTap: () => c.selecionar(a),
-        child: Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: a.naCiclovia ? Colors.red.shade600 : Colors.blue.shade600,
-            border: Border.all(color: Colors.white, width: selecionado ? 3 : 2),
-            boxShadow: const [BoxShadow(blurRadius: 3, color: Colors.black38)],
-          ),
-          child: const Icon(Icons.pedal_bike, size: 16, color: Colors.white),
-        ),
-      ),
-    );
-  }
-
-  Marker _cluster(Grupo g) {
-    // quanto mais acidentes, maior o círculo
-    final tamanho = 34.0 + (g.total.clamp(1, 50) / 50) * 18;
-
-    return Marker(
-      point: g.ponto,
-      width: tamanho,
-      height: tamanho,
-      child: GestureDetector(
-        onTap: () => c.aproximar(g.ponto),
-        child: Container(
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.teal.shade600,
-            border: Border.all(color: Colors.white, width: 2),
-            boxShadow: const [BoxShadow(blurRadius: 3, color: Colors.black38)],
-          ),
-          child: Text(
-            '${g.total}',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Detalhe extends StatelessWidget {
-  const _Detalhe(this.a, {required this.onFechar});
-  final Acidente a;
-  final VoidCallback onFechar;
-
-  @override
-  Widget build(BuildContext context) {
-    final linhas = <String>[
-      '${a.bairro ?? ''} · ${a.data ?? ''} ${a.hora ?? ''}',
-      if (a.natureza != null) a.natureza!,
-      for (final v in a.ciclovias.where((v) => v.distM != null))
-        'Rede ${v.rede}: ${v.rota ?? '?'} a ${v.distM!.round()} m'
-            '${v.naCiclovia ? ' (na ciclovia)' : ''}',
-      if (a.estacao?.distM != null)
-        'Estação ${a.estacao!.nome} a ${a.estacao!.distM!.round()} m',
-    ];
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${a.endereco ?? 'Endereço desconhecido'}'
-                    '${a.numero != null ? ', ${a.numero}' : ''}',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  for (final l in linhas) Text(l, style: Theme.of(context).textTheme.bodySmall),
-                ],
-              ),
-            ),
-            IconButton(icon: const Icon(Icons.close), onPressed: onFechar),
-          ],
-        ),
+          const SizedBox(width: 6),
+          Text(aoVivo ? 'Ao vivo' : 'Offline',
+              style: TextStyle(
+                color: aoVivo ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              )),
+        ],
       ),
     );
   }
