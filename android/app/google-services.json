@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "838223516304",
+    "project_id": "bike-app-50382",
+    "storage_bucket": "bike-app-50382.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:838223516304:android:6b75cd267a99eb1c267e15",
+        "android_client_info": {
+          "package_name": "com.example.bikesafe_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAVd__0hm_1YqfyDcmZxby1ANPEH0kbNFs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

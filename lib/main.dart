@@ -1,18 +1,22 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
+import 'auth/auth_service.dart';
 import 'config.dart';
 import 'dashboard_controller.dart';
-import 'telas/config_tela.dart';
-import 'telas/home_tela.dart';
-import 'telas/mapa_tela.dart';
-import 'telas/reportes_tela.dart';
+import 'firebase_options.dart';
+import 'telas/login_tela.dart';
+import 'telas/shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Config.carregar();   // servidor, tema e identificador do aparelho
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await Config.carregar();
   runApp(const BikeSafeApp());
 }
 
+/// Mostra o login; ao entrar, abre o app (Shell) no Mapa.
+/// O controlador (MQTT, API, dados) só nasce depois do login.
 class BikeSafeApp extends StatefulWidget {
   const BikeSafeApp({super.key});
 
@@ -21,18 +25,44 @@ class BikeSafeApp extends StatefulWidget {
 }
 
 class _BikeSafeAppState extends State<BikeSafeApp> {
-  final c = DashboardController();
+  DashboardController? _c;
+  final _auth = AuthService();
 
   @override
   void initState() {
     super.initState();
-    c.iniciar();
+
+    // o Firebase guarda a sessão: se já tem usuário logado, pula o login
+    final u = _auth.usuarioAtual;
+    if (u != null) {
+      Config.perfilNome = u.displayName ?? Config.perfilNome;
+      Config.perfilEmail = u.email ?? Config.perfilEmail;
+      _entrar();
+    }
   }
 
   @override
   void dispose() {
-    c.dispose();
+    _c?.dispose();
     super.dispose();
+  }
+
+  void _entrar() {
+    final c = DashboardController();
+
+    c.aba = 1; // abre direto no mapa (0 = Home)
+    c.iniciar();
+    setState(() => _c = c);
+  }
+
+  Future<void> _sair() async {
+    final antigo = _c;
+
+    await _auth.sair();
+    await Config.limparSessao();
+
+    setState(() => _c = null);
+    WidgetsBinding.instance.addPostFrameCallback((_) => antigo?.dispose());
   }
 
   @override
@@ -48,99 +78,7 @@ class _BikeSafeAppState extends State<BikeSafeApp> {
             brightness: Brightness.dark,
             useMaterial3: true,
           ),
-          home: Shell(c),
-        ),
-      );
-}
-
-class Shell extends StatelessWidget {
-  const Shell(this.c, {super.key});
-  final DashboardController c;
-
-  @override
-  Widget build(BuildContext context) => ListenableBuilder(
-        listenable: c,
-        builder: (context, _) => LayoutBuilder(
-          builder: (context, caixa) {
-            // IndexedStack mantém as telas vivas: o mapa não perde posição ao trocar de aba
-            final telas = IndexedStack(
-              index: c.aba,
-              children: [
-                HomeTela(c),
-                MapaTela(c),
-                ReportesTela(c),
-                ConfigTela(c),
-              ],
-            );
-
-            if (caixa.maxWidth >= 800) {
-              return Scaffold(
-                body: Row(
-                  children: [
-                    NavigationRail(
-                      selectedIndex: c.aba,
-                      onDestinationSelected: c.irParaAba,
-                      labelType: NavigationRailLabelType.all,
-                      destinations: const [
-                        NavigationRailDestination(
-                          icon: Icon(Icons.home_outlined),
-                          selectedIcon: Icon(Icons.home),
-                          label: Text('Home'),
-                        ),
-                        NavigationRailDestination(
-                          icon: Icon(Icons.map_outlined),
-                          selectedIcon: Icon(Icons.map),
-                          label: Text('Mapa'),
-                        ),
-                        NavigationRailDestination(
-                          icon: Icon(Icons.campaign_outlined),
-                          selectedIcon: Icon(Icons.campaign),
-                          label: Text('Reportados'),
-                        ),
-                        NavigationRailDestination(
-                          icon: Icon(Icons.settings_outlined),
-                          selectedIcon: Icon(Icons.settings),
-                          label: Text('Config.'),
-                        ),
-                      ],
-                    ),
-                    const VerticalDivider(width: 1),
-                    Expanded(child: telas),
-                  ],
-                ),
-              );
-            }
-
-            return Scaffold(
-              body: telas,
-              bottomNavigationBar: NavigationBar(
-                selectedIndex: c.aba,
-                onDestinationSelected: c.irParaAba,
-                destinations: const [
-                  NavigationDestination(
-                    icon: Icon(Icons.home_outlined),
-                    selectedIcon: Icon(Icons.home),
-                    label: 'Home',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.map_outlined),
-                    selectedIcon: Icon(Icons.map),
-                    label: 'Mapa',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.campaign_outlined),
-                    selectedIcon: Icon(Icons.campaign),
-                    label: 'Reportados',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.settings_outlined),
-                    selectedIcon: Icon(Icons.settings),
-                    label: 'Ajustes',
-                  ),
-                ],
-              ),
-            );
-          },
+          home: _c == null ? LoginTela(aoEntrar: _entrar) : Shell(_c!, aoSair: _sair),
         ),
       );
 }
